@@ -1,0 +1,58 @@
+name: Deploy site and build APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-site:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: course-vault-repo/course-vault-repo/site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  build-apk:
+    needs: deploy-site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Work out the site URL
+        run: |
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr 'A-Z' 'a-z')
+          REPO=${GITHUB_REPOSITORY#*/}
+          if [ "$(echo "$REPO" | tr 'A-Z' 'a-z')" = "$OWNER.github.io" ]; then
+            echo "TWA_URL=https://$OWNER.github.io/" >> $GITHUB_ENV
+          else
+            echo "TWA_URL=https://$OWNER.github.io/$REPO/" >> $GITHUB_ENV
+          fi
+          echo "TWA_HOST=$OWNER.github.io" >> $GITHUB_ENV
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Build debug APK
+        run: gradle -p course-vault-repo/course-vault-repo/android assembleDebug --no-daemon -PtwaUrl="$TWA_URL" -PtwaHost="$TWA_HOST"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: course-vault-apk
+          path: course-vault-repo/course-vault-repo/android/app/build/outputs/apk/debug/app-debug.apk
